@@ -5,17 +5,17 @@ import { SeoH1, SeoContentSection, FaqSection, StepList } from '@/components/ui/
 import Match3Client from './Match3Client'
 
 export const metadata: Metadata = {
-  title: '三消遊戲 | 免費工具與小遊戲',
-  description: '免費線上三消遊戲，交換相鄰水果達成三個以上連線，消除越多分數越高。經典玩法，30 步挑戰最高分！',
+  title: '貓貓連線 | 免費工具與小遊戲',
+  description: '免費線上貓貓連線遊戲，交換相鄰貓咪達成三個以上連線，消除越多分數越高。經典玩法，30 步挑戰最高分！',
 }
 
 export default function Match3Page() {
   const steps = [
-    '點擊兩個相鄰的水果進行交換',
-    '三個或以上相同水果連成一線即可消除',
-    '消除後上方水果會掉落並補新水果',
+    '點擊兩個相鄰的貓咪進行交換',
+    '三個或以上相同貓咪連成一線即可消除',
+    '消除後上方貓咪會掉落並補充新貓咪',
     '連續消除可獲得 combo 加分',
-    '在 30 步內獲得最高分數！',
+    '連線 4 個以上可產生特殊效果貓咪！',
   ]
 
   const faqItems = [
@@ -32,8 +32,8 @@ export default function Match3Page() {
       answer: '當步數歸零時遊戲結束，會顯示本局分數並自動保存最高分到瀏覽器中。',
     },
     {
-      question: '水果三消樂跟一般三消有什麼不同？',
-      answer: '我們使用水果 Emoji 作為遊戲圖案，畫面活潑可愛，並支援連鎖消除的 combo 系統。',
+      question: '貓貓連線跟一般三消有什麼不同？',
+      answer: '我們使用可愛的 Q 版貓咪作為遊戲圖案，比傳統水果三消更具特色，連線 4 個以上還能產生特殊效果方塊！',
     },
   ]
 
@@ -45,7 +45,7 @@ export default function Match3Page() {
         { label: '三消遊戲' },
       ]} />
 
-      <SeoH1>水果三消樂</SeoH1>
+      <SeoH1>貓貓連線</SeoH1>
 
       <AdPlaceholder position="top-banner" />
 
@@ -59,10 +59,11 @@ export default function Match3Page() {
         <StepList steps={steps} />
       </SeoContentSection>
 
-      <SeoContentSection title="為什麼要玩水果三消樂？">
+      <SeoContentSection title="為什麼要玩貓貓連線？">
         <p>
-          三消遊戲是經典的益智遊戲類型，透過交換水果達成消除，簡單易懂卻富有挑戰性。
+          三消遊戲是經典的益智遊戲類型，透過交換貓咪達成消除，簡單易懂卻富有挑戰性。
           每局 30 步的限制讓每一步都至關重要，連鎖消除更是逆轉分數的關鍵！
+          連線 4 個以上貓咪可產生特殊效果方塊，讓遊戲更加刺激！
         </p>
       </SeoContentSection>
 

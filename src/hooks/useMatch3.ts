@@ -1,9 +1,12 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import type { Board, Position, GameStatus } from '@/lib/games/match-3/types'
-import { INITIAL_STEPS } from '@/lib/games/match-3/types'
-import { isAdjacent, swap, hasMatches, findMatches, removeMatches, applyGravity, fillEmpty, generateBoard } from '@/lib/games/match-3/board'
+import type { Board, Position, GameStatus, SpecialsBoard } from '@/lib/games/match-3/types'
+import { BOARD_SIZE, INITIAL_STEPS, createEmptySpecials, getFruitFromValue } from '@/lib/games/match-3/types'
+import {
+  isAdjacent, swap, hasMatches, findMatches, removeMatches, applyGravity, fillEmpty,
+  generateBoard, detectLTShape, getSpecialFromMatch, createSpecialAt,
+} from '@/lib/games/match-3/board'
 import { calcMatchScore, getHighScore, saveHighScore } from '@/lib/games/match-3/scoring'
 import { GameSound } from '@/lib/games/sound'
 
@@ -11,32 +14,48 @@ export interface AnimState {
   removing: Position[]
   falling: Position[]
   filling: Position[]
+  specialActivating: Position[]
+}
+
+function emptyBoard(): Board {
+  return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(-1))
 }
 
 export function useMatch3() {
-  const [board, setBoard] = useState<Board>(generateBoard())
+  const [board, setBoard] = useState<Board>(emptyBoard)
+  const [isClient, setIsClient] = useState(false)
+  const [specials, setSpecials] = useState<SpecialsBoard>(createEmptySpecials())
+  // blockers will be added in Phase 3
   const [score, setScore] = useState(0)
   const [highScore, setHighScoreState] = useState(getHighScore())
   const [steps, setSteps] = useState(INITIAL_STEPS)
   const [combo, setCombo] = useState(0)
   const [status, setStatus] = useState<GameStatus>('ready')
   const [selected, setSelected] = useState<Position | null>(null)
-  const [animState, setAnimState] = useState<AnimState>({ removing: [], falling: [], filling: [] })
+  const [animState, setAnimState] = useState<AnimState>({ removing: [], falling: [], filling: [], specialActivating: [] })
   const [soundOn, setSoundOn] = useState(true)
   const soundRef = useRef(new GameSound(true))
   const boardRef = useRef<Board>(board)
-  useEffect(() => { boardRef.current = board }, [board])
-  const processChainRef = useRef<((b: Board, c: number, s: number, r: number) => void) | null>(null)
+  const specialsRef = useRef<SpecialsBoard>(specials)
+  useEffect(() => { boardRef.current = board; specialsRef.current = specials }, [board, specials])
+  const processChainRef = useRef<((b: Board, sp: SpecialsBoard, c: number, s: number, r: number) => void) | null>(null)
+
+  useEffect(() => {
+    const gb = generateBoard()
+    setBoard(gb)
+    setIsClient(true)
+  }, [])
 
   const startGame = useCallback(() => {
     const gb = generateBoard()
     setBoard(gb)
+    setSpecials(createEmptySpecials())
     setScore(0)
     setSteps(INITIAL_STEPS)
     setCombo(0)
     setStatus('playing')
     setSelected(null)
-    setAnimState({ removing: [], falling: [], filling: [] })
+    setAnimState({ removing: [], falling: [], filling: [], specialActivating: [] })
     soundRef.current = new GameSound(true)
   }, [])
 
@@ -48,10 +67,14 @@ export function useMatch3() {
     })
   }, [])
 
-  const processChain = useCallback((currentBoard: Board, currentCombo: number, totalScore: number, remainingSteps: number) => {
-    const matches = findMatches(currentBoard)
+  const processChain = useCallback((currentBoard: Board, currentSpecials: SpecialsBoard, currentCombo: number, totalScore: number, remainingSteps: number) => {
+    let matches = findMatches(currentBoard, currentSpecials)
+    const ltMatches = detectLTShape(currentBoard, matches, currentSpecials)
+    matches = [...matches, ...ltMatches]
+
     if (matches.length === 0) {
       setBoard(currentBoard)
+      setSpecials(currentSpecials)
       if (remainingSteps <= 0) {
         setStatus('gameOver')
         saveHighScore(totalScore)
@@ -66,7 +89,6 @@ export function useMatch3() {
       for (const p of m.positions) allMatched.push(p)
     }
 
-    const matchCount = allMatched.length
     const newCombo = currentCombo + 1
     setCombo(newCombo)
     setAnimState(prev => ({ ...prev, removing: allMatched }))
@@ -75,18 +97,31 @@ export function useMatch3() {
     else soundRef.current.match3clear()
 
     setTimeout(() => {
-      const cleared = removeMatches(currentBoard, matches)
-      setAnimState({ removing: [], falling: [], filling: [] })
+      let cleared = removeMatches(currentBoard, matches)
+      let newSpecials = currentSpecials.map(row => [...row])
 
-      const { board: gravBoard } = applyGravity(cleared)
-      const { board: filledBoard } = fillEmpty(gravBoard)
+      for (const m of matches) {
+        const specialType = getSpecialFromMatch(m)
+        if (specialType && m.center) {
+          const fruit = getFruitFromValue(currentBoard[m.center.row][m.center.col])
+          const result = createSpecialAt(cleared, newSpecials, m.center, specialType, fruit)
+          cleared = result.board
+          newSpecials = result.specials
+        }
+      }
 
-      const chainScore = calcMatchScore(matchCount, currentCombo)
-      const newTotal = totalScore + Math.round(chainScore)
+      setAnimState({ removing: [], falling: [], filling: [], specialActivating: [] })
+
+      const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
+      const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
+
+      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null)
+      const chainScore = calcMatchScore(allMatched.length, currentCombo, hasSpec)
+      const newTotal = totalScore + chainScore
       setScore(newTotal)
 
       setTimeout(() => {
-        processChainRef.current?.(filledBoard, newCombo, newTotal, remainingSteps)
+        processChainRef.current?.(filledBoard, filledSpecials, newCombo, newTotal, remainingSteps)
       }, 200)
     }, 250)
   }, [])
@@ -97,8 +132,9 @@ export function useMatch3() {
 
   const doSwap = useCallback((a: Position, b: Position) => {
     const currentBoard = boardRef.current
+    const currentSpecials = specialsRef.current
     const testBoard = swap(currentBoard, a, b)
-    if (!hasMatches(testBoard)) return false
+    if (!hasMatches(testBoard, currentSpecials)) return false
 
     const clickScore = score
     const clickSteps = steps
@@ -108,7 +144,10 @@ export function useMatch3() {
     const newSteps = clickSteps - 1
     setSteps(newSteps)
 
-    const matches = findMatches(testBoard)
+    let matches = findMatches(testBoard, currentSpecials)
+    const ltMatches = detectLTShape(testBoard, matches, currentSpecials)
+    matches = [...matches, ...ltMatches]
+
     const allPositions: Position[] = []
     for (const m of matches) {
       for (const p of m.positions) allPositions.push(p)
@@ -118,19 +157,32 @@ export function useMatch3() {
     soundRef.current.match3swap()
 
     setTimeout(() => {
-      const cleared = removeMatches(testBoard, matches)
-      setAnimState({ removing: [], falling: [], filling: [] })
+      let cleared = removeMatches(testBoard, matches)
+      let newSpecials = currentSpecials.map(row => [...row])
 
-      const { board: gravBoard } = applyGravity(cleared)
-      const { board: filledBoard } = fillEmpty(gravBoard)
+      for (const m of matches) {
+        const specialType = getSpecialFromMatch(m)
+        if (specialType && m.center) {
+          const fruit = getFruitFromValue(testBoard[m.center.row][m.center.col])
+          const result = createSpecialAt(cleared, newSpecials, m.center, specialType, fruit)
+          cleared = result.board
+          newSpecials = result.specials
+        }
+      }
 
-      const matchScore = calcMatchScore(allPositions.length, 0)
-      const newScore = clickScore + Math.round(matchScore)
+      setAnimState({ removing: [], falling: [], filling: [], specialActivating: [] })
+
+      const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
+      const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
+
+      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null)
+      const matchScore = calcMatchScore(allPositions.length, 0, hasSpec)
+      const newScore = clickScore + matchScore
       setScore(newScore)
       setCombo(1)
 
       setTimeout(() => {
-        processChainRef.current?.(filledBoard, 1, newScore, newSteps)
+        processChainRef.current?.(filledBoard, filledSpecials, 1, newScore, newSteps)
       }, 200)
     }, 250)
 
@@ -178,7 +230,8 @@ export function useMatch3() {
   }, [])
 
   return {
-    board, score, highScore, steps, combo, status, selected, animState, soundOn,
+    board, specials, score, highScore, steps, combo, status, selected, animState, soundOn,
+    isClient,
     startGame, handleCellClick, handleSwipe, pauseGame, setSelected, toggleSound,
   }
 }

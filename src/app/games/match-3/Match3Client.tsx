@@ -1,15 +1,33 @@
 'use client'
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useMatch3 } from '@/hooks/useMatch3'
-import { BOARD_SIZE, FRUITS } from '@/lib/games/match-3/types'
-import type { Position } from '@/lib/games/match-3/types'
+import { BOARD_SIZE, CAT_NAMES, CAT_IMAGES, SPECIAL_IMAGES, getSpecialFromValue, getFruitFromValue } from '@/lib/games/match-3/types'
+import type { Position, SpecialPiece } from '@/lib/games/match-3/types'
 
 const SWIPE_THRESHOLD = 20
 
+function CatImage({ fruit, special, className }: { fruit: number; special: SpecialPiece | null; className?: string }) {
+  const src = special ? SPECIAL_IMAGES[special] ?? CAT_IMAGES[fruit] : CAT_IMAGES[fruit]
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <div className={`relative flex items-center justify-center w-full h-full ${className ?? ''}`}>
+      {!loaded && <div className="absolute inset-0 bg-gray-100 rounded-lg animate-pulse" />}
+      <img
+        src={src}
+        alt={CAT_NAMES[fruit] ?? ''}
+        className={`w-[80%] h-[80%] object-contain transition-opacity duration-100 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setLoaded(true)}
+        draggable={false}
+      />
+    </div>
+  )
+}
+
 export default function Match3Client() {
   const {
-    board, score, highScore, steps, combo, status, selected, animState, soundOn,
+    board, specials, score, highScore, steps, combo, status, selected, animState, soundOn,
+    isClient,
     startGame, handleCellClick, handleSwipe, pauseGame, toggleSound,
   } = useMatch3()
 
@@ -74,7 +92,6 @@ export default function Match3Client() {
 
   return (
     <div className="flex flex-col items-center gap-6 w-full" style={{ maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}>
-      {/* Score bar */}
       <div className="flex w-full flex-wrap items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm border border-gray-200" style={{ maxWidth: 420, boxSizing: 'border-box', overflowWrap: 'anywhere' }}>
         <div className="text-center flex-1 min-w-0 px-1">
           <div className="text-xs text-gray-500">分數</div>
@@ -94,7 +111,6 @@ export default function Match3Client() {
         </div>
       </div>
 
-      {/* Action buttons */}
       <div className="flex gap-3 flex-wrap justify-center w-full" style={{ maxWidth: 420, boxSizing: 'border-box' }}>
         <button
           onClick={toggleSound}
@@ -128,9 +144,13 @@ export default function Match3Client() {
         )}
       </div>
 
-      {/* Board */}
       <div className="relative w-full" style={{ maxWidth: 420 }}>
-        {status === 'paused' && (
+        {!isClient && (
+          <div className="flex items-center justify-center rounded-xl border-2 border-gray-200 bg-gray-50" style={{ aspectRatio: '1 / 1' }}>
+            <div className="text-gray-400 text-sm">載入中...</div>
+          </div>
+        )}
+        {isClient && status === 'paused' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-gray-100/80 backdrop-blur-sm">
             <div className="text-center">
               <div className="text-2xl font-bold text-gray-600">已暫停</div>
@@ -139,6 +159,7 @@ export default function Match3Client() {
           </div>
         )}
 
+        {isClient && (
         <div
           className={`rounded-xl border-2 border-gray-200 bg-gray-50 p-0.5 shadow-sm overflow-hidden ${status === 'gameOver' ? 'opacity-50 pointer-events-none' : ''}`}
           style={{ display: status === 'paused' ? 'none' : 'block' }}
@@ -158,9 +179,12 @@ export default function Match3Client() {
             onPointerCancel={handlePointerCancel}
           >
             {board.map((row, r) =>
-              row.map((fruit, c) => {
+              row.map((value, c) => {
                 const isSelected = selected?.row === r && selected?.col === c
                 const removing = isRemoving(r, c)
+                const fruit = getFruitFromValue(value)
+                const special = getSpecialFromValue(value) ?? specials[r]?.[c] ?? null
+                const isEmpty = value < 0
                 return (
                   <div
                     key={`${r}-${c}`}
@@ -169,24 +193,23 @@ export default function Match3Client() {
                       transition-all duration-150
                       ${isSelected ? 'ring-3 ring-indigo-400 scale-105 shadow-md' : 'hover:ring-2 hover:ring-indigo-300'}
                       ${removing ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}
-                      ${status === 'playing' ? 'hover:bg-indigo-50' : ''}
+                      ${status === 'playing' && !isEmpty ? 'hover:bg-indigo-50' : ''}
                     `}
                     style={{
                       aspectRatio: '1 / 1',
                       minWidth: 0,
                       minHeight: 0,
-                      backgroundColor: fruit >= 0 ? 'white' : 'transparent',
+                      backgroundColor: !isEmpty ? 'white' : 'transparent',
                       transition: removing ? 'all 0.2s ease-out' : 'all 0.15s ease',
                       boxSizing: 'border-box',
                     }}
                   >
-                    {fruit >= 0 && (
-                      <span
+                    {!isEmpty && (
+                      <CatImage
+                        fruit={fruit}
+                        special={special}
                         className={removing ? 'animate-ping' : ''}
-                        style={{ fontSize: 'clamp(18px, 5vw, 30px)', lineHeight: 1 }}
-                      >
-                        {FRUITS[fruit]}
-                      </span>
+                      />
                     )}
                   </div>
                 )
@@ -194,10 +217,10 @@ export default function Match3Client() {
             )}
           </div>
         </div>
+        )}
       </div>
 
-      {/* Game Over modal */}
-      {status === 'gameOver' && (
+      {isClient && status === 'gameOver' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="mx-4 w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-2xl" style={{ boxSizing: 'border-box', maxWidth: 'calc(100vw - 32px)' }}>
             <div className="text-5xl mb-4">🎮</div>
