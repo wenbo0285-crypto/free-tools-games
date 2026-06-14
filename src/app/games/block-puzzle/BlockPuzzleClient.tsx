@@ -27,12 +27,15 @@ export default function BlockPuzzleClient() {
 
   const cellSize = Math.floor(boardPx / BOARD_SIZE)
 
-  const getBoardPos = useCallback((clientX: number, clientY: number): { row: number; col: number } | null => {
+  const getBoardPos = useCallback((clientX: number, clientY: number, shape?: Shape): { row: number; col: number } | null => {
     if (!boardRef.current) return null
     const rect = boardRef.current.getBoundingClientRect()
-    const col = Math.floor((clientX - rect.left) / (rect.width / BOARD_SIZE))
-    const row = Math.floor((clientY - rect.top) / (rect.height / BOARD_SIZE))
-    if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return null
+    let col = Math.floor((clientX - rect.left) / (rect.width / BOARD_SIZE))
+    let row = Math.floor((clientY - rect.top) / (rect.height / BOARD_SIZE))
+    if (shape) {
+      row -= Math.floor(shape.cells.length / 2)
+      col -= Math.floor(shape.cells[0].length / 2)
+    }
     return { row, col }
   }, [])
 
@@ -41,17 +44,19 @@ export default function BlockPuzzleClient() {
     boardRef.current?.setPointerCapture(e.pointerId)
     startDrag(pieceIndex)
     setPointerPos({ x: e.clientX, y: e.clientY })
-    const pos = getBoardPos(e.clientX, e.clientY)
+    const shape = currentPieces[pieceIndex]
+    const pos = getBoardPos(e.clientX, e.clientY, shape)
     if (pos) setDragPos(pieceIndex, pos.row, pos.col)
-  }, [startDrag, getBoardPos, setDragPos])
+  }, [startDrag, getBoardPos, setDragPos, currentPieces])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragState.isDragging) return
     e.preventDefault()
     setPointerPos({ x: e.clientX, y: e.clientY })
-    const pos = getBoardPos(e.clientX, e.clientY)
+    const shape = currentPieces[dragState.pieceIndex]
+    const pos = getBoardPos(e.clientX, e.clientY, shape)
     if (pos) setDragPos(dragState.pieceIndex, pos.row, pos.col)
-  }, [dragState, getBoardPos, setDragPos])
+  }, [dragState, getBoardPos, setDragPos, currentPieces])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
@@ -60,23 +65,49 @@ export default function BlockPuzzleClient() {
 
   const renderBoard = () => {
     const cells: React.ReactNode[] = []
+    const shape = dragState.isDragging ? currentPieces[dragState.pieceIndex] : undefined
+
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const isClearingRow = animState.clearingRows.includes(r)
         const isClearingCol = animState.clearingCols.includes(c)
-        const isPreview = dragState.previewPos && dragState.isValid &&
-          r >= dragState.previewPos.row && r < dragState.previewPos.row + (currentPieces[dragState.pieceIndex]?.cells.length || 1) &&
-          c >= dragState.previewPos.col && c < dragState.previewPos.col + (currentPieces[dragState.pieceIndex]?.cells[0]?.length || 1) &&
-          !!(currentPieces[dragState.pieceIndex]?.cells[r - dragState.previewPos.row]?.[c - dragState.previewPos.col])
+
+        let bgColor = '#f3f4f6'
+        let extraClass = ''
+
+        if (isClearingRow || isClearingCol) {
+          bgColor = '#FCD34D'
+          extraClass = 'animate-pulse'
+        } else if (board[r][c]) {
+          bgColor = '#4F46E5'
+        } else if (dragState.previewPos && shape) {
+          const pr = dragState.previewPos.row
+          const pc = dragState.previewPos.col
+          const cellInShape = shape.cells[r - pr]?.[c - pc]
+          if (r >= pr && r < pr + shape.cells.length && c >= pc && c < pc + shape.cells[0].length && cellInShape) {
+            const br = r
+            const bc = c
+            const outOfBounds = br < 0 || br >= BOARD_SIZE || bc < 0 || bc >= BOARD_SIZE
+            const overlap = !outOfBounds && board[br][bc] === 1
+
+            if (dragState.isValid) {
+              bgColor = 'rgba(79, 70, 229, 0.25)'
+            } else if (overlap) {
+              bgColor = 'rgba(220, 38, 38, 0.45)'
+              extraClass = 'ring-2 ring-red-600 ring-inset'
+            } else if (outOfBounds) {
+              bgColor = 'rgba(220, 38, 38, 0.2)'
+            } else {
+              bgColor = 'rgba(220, 38, 38, 0.3)'
+            }
+          }
+        }
 
         cells.push(
           <div
             key={`${r}-${c}`}
-            className={`border-[0.5px] border-gray-200 transition-colors duration-150 ${isClearingRow || isClearingCol ? 'animate-pulse' : ''}`}
-            style={{
-              backgroundColor: board[r][c] ? '#4F46E5' : isClearingRow || isClearingCol ? '#FCD34D' : isPreview
-                ? 'rgba(79, 70, 229, 0.25)' : '#f3f4f6',
-            }}
+            className={`border-[0.5px] border-gray-200 transition-colors duration-100 ${extraClass}`}
+            style={{ backgroundColor: bgColor }}
           />
         )
       }
