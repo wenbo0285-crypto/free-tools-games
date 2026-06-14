@@ -5,7 +5,7 @@ import type { Board, Position, GameStatus, SpecialsBoard } from '@/lib/games/mat
 import { BOARD_SIZE, INITIAL_STEPS, createEmptySpecials, getFruitFromValue } from '@/lib/games/match-3/types'
 import {
   isAdjacent, swap, hasMatches, findMatches, removeMatches, applyGravity, fillEmpty,
-  generateBoard, detectLTShape, getSpecialFromMatch, createSpecialAt,
+  generateBoard, detectLTShape, getSpecialFromMatch, createSpecialAt, collectSpecialActivations,
 } from '@/lib/games/match-3/board'
 import { calcMatchScore, getHighScore, saveHighScore } from '@/lib/games/match-3/scoring'
 import { GameSound } from '@/lib/games/sound'
@@ -42,6 +42,7 @@ export function useMatch3() {
 
   useEffect(() => {
     const gb = generateBoard()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBoard(gb)
     setIsClient(true)
   }, [])
@@ -89,9 +90,13 @@ export function useMatch3() {
       for (const p of m.positions) allMatched.push(p)
     }
 
+    // Check for special piece activations
+    const specialAffected = collectSpecialActivations(currentBoard, currentSpecials, allMatched)
+    const allAffected = [...allMatched, ...specialAffected]
+
     const newCombo = currentCombo + 1
     setCombo(newCombo)
-    setAnimState(prev => ({ ...prev, removing: allMatched }))
+    setAnimState(prev => ({ ...prev, removing: allAffected, specialActivating: specialAffected }))
 
     if (newCombo >= 2) soundRef.current.combo()
     else soundRef.current.match3clear()
@@ -115,8 +120,8 @@ export function useMatch3() {
       const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
       const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
 
-      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null)
-      const chainScore = calcMatchScore(allMatched.length, currentCombo, hasSpec)
+      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || specialAffected.length > 0
+      const chainScore = calcMatchScore(allAffected.length, currentCombo, hasSpec)
       const newTotal = totalScore + chainScore
       setScore(newTotal)
 
@@ -152,7 +157,11 @@ export function useMatch3() {
     for (const m of matches) {
       for (const p of m.positions) allPositions.push(p)
     }
-    setAnimState(prev => ({ ...prev, removing: allPositions }))
+
+    // Check for special piece activations
+    const specialAffected = collectSpecialActivations(testBoard, currentSpecials, allPositions)
+    const allAffected = [...allPositions, ...specialAffected]
+    setAnimState(prev => ({ ...prev, removing: allAffected, specialActivating: specialAffected }))
 
     soundRef.current.match3swap()
 
@@ -175,8 +184,8 @@ export function useMatch3() {
       const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
       const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
 
-      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null)
-      const matchScore = calcMatchScore(allPositions.length, 0, hasSpec)
+      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || specialAffected.length > 0
+      const matchScore = calcMatchScore(allAffected.length, 0, hasSpec)
       const newScore = clickScore + matchScore
       setScore(newScore)
       setCombo(1)

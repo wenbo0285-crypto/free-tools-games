@@ -6,7 +6,7 @@ import Match3Client from './Match3Client'
 
 export const metadata: Metadata = {
   title: '貓貓連線 | 免費工具與小遊戲',
-  description: '免費線上貓貓連線遊戲，交換相鄰貓咪達成三個以上連線，消除越多分數越高。經典玩法，30 步挑戰最高分！',
+  description: '胖胖貓咪連線消除，輕鬆療癒又紓壓。交換相鄰貓咪達成三消，連線越多分數越高！',
 }
 
 export default function Match3Page() {

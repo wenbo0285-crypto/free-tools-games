@@ -1,5 +1,5 @@
 import type { Board, Position, MatchResult, SpecialPiece, SpecialsBoard } from './types'
-import { BOARD_SIZE, FRUIT_COUNT, getFruitFromValue, makeSpecialValue } from './types'
+import { BOARD_SIZE, FRUIT_COUNT, getFruitFromValue, makeSpecialValue, getSpecialFromValue } from './types'
 
 export function createEmptyBoard(): Board {
   return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(-1))
@@ -313,4 +313,42 @@ export function createSpecialAt(board: Board, specials: SpecialsBoard, pos: Posi
   newBoard[pos.row][pos.col] = makeSpecialValue(fruit, special)
   newSpecials[pos.row][pos.col] = special
   return { board: newBoard, specials: newSpecials }
+}
+
+export function collectSpecialActivations(
+  board: Board,
+  specials: SpecialsBoard,
+  matchedPositions: Position[],
+): Position[] {
+  const visited = new Set<string>()
+  const allAffected: Position[] = []
+  const queue: Position[] = []
+
+  for (const p of matchedPositions) {
+    const key = `${p.row},${p.col}`
+    if (!visited.has(key)) {
+      visited.add(key)
+      queue.push(p)
+    }
+  }
+
+  while (queue.length > 0) {
+    const pos = queue.shift()!
+    const sp = specials[pos.row]?.[pos.col] ?? getSpecialFromValue(board[pos.row]?.[pos.col] ?? -1)
+    if (sp) {
+      const affected = getCellsAffectedBySpecial(board, pos, sp)
+      for (const a of affected) {
+        const key = `${a.row},${a.col}`
+        if (!visited.has(key)) {
+          visited.add(key)
+          allAffected.push(a)
+          // If the affected cell also has a special, queue it
+          const aSp = specials[a.row]?.[a.col] ?? getSpecialFromValue(board[a.row]?.[a.col] ?? -1)
+          if (aSp) queue.push(a)
+        }
+      }
+    }
+  }
+
+  return allAffected
 }
