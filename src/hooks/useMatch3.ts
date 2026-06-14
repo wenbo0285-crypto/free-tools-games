@@ -107,8 +107,10 @@ export function useMatch3() {
       else if (sp === 'colorBomb') soundRef.current.specialColorBomb()
       else if (sp === 'wrapped') soundRef.current.specialWrapped()
     }
-    if (newCombo === 1) soundRef.current.match3clear()
-    else if (newCombo >= 2) soundRef.current.combo()
+    if (newCombo === 1) {
+      soundRef.current.match3clear()
+      if (Math.random() < 0.15) soundRef.current.meow()
+    } else if (newCombo >= 2) soundRef.current.combo()
     if (specialAffected.length > 0) playSpecialSound(specialAffected[0])
 
     setTimeout(() => {
@@ -257,6 +259,8 @@ export function useMatch3() {
       }
       setAnimState({ removing: [], falling: fallingCells, filling: [], specialActivating: [] })
       setTimeout(() => setAnimState(prev => ({ ...prev, falling: [] })), 350)
+
+      if (!isComboSwap && Math.random() < 0.12) soundRef.current.meow()
 
       const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || !!(specA && specB)
       const matchScore = calcMatchScore(allAffected.length, 0, hasSpec)

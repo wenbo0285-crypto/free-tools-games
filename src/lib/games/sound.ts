@@ -130,4 +130,42 @@ export class GameSound {
     this.tone(baseFreq + 200, 0.15, 'triangle', 0.12, 0.05)
     this.tone(baseFreq + 400, 0.2, 'triangle', 0.1, 0.1)
   }
+
+  meow() {
+    const ctx = this.getCtx()
+    if (!ctx) return
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    const t = ctx.currentTime
+    osc.frequency.setValueAtTime(700, t)
+    osc.frequency.exponentialRampToValueAtTime(1100, t + 0.1)
+    osc.frequency.exponentialRampToValueAtTime(500, t + 0.25)
+    osc.frequency.exponentialRampToValueAtTime(400, t + 0.35)
+    gain.gain.setValueAtTime(0.25, t)
+    gain.gain.linearRampToValueAtTime(0.2, t + 0.15)
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(t)
+    osc.stop(t + 0.4)
+    // Add a second softer meow after a short delay
+    setTimeout(() => {
+      const ctx2 = this.getCtx()
+      if (!ctx2) return
+      const osc2 = ctx2.createOscillator()
+      const gain2 = ctx2.createGain()
+      osc2.type = 'sine'
+      const t2 = ctx2.currentTime
+      osc2.frequency.setValueAtTime(600, t2)
+      osc2.frequency.exponentialRampToValueAtTime(900, t2 + 0.08)
+      osc2.frequency.exponentialRampToValueAtTime(450, t2 + 0.2)
+      gain2.gain.setValueAtTime(0.15, t2)
+      gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.3)
+      osc2.connect(gain2)
+      gain2.connect(ctx2.destination)
+      osc2.start(t2)
+      osc2.stop(t2 + 0.3)
+    }, 300)
+  }
 }
