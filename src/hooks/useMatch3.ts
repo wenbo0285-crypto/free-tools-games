@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import type { Board, Position, GameStatus, SpecialsBoard } from '@/lib/games/match-3/types'
-import { BOARD_SIZE, INITIAL_STEPS, createEmptySpecials, getFruitFromValue } from '@/lib/games/match-3/types'
+import type { Board, Position, GameStatus, SpecialsBoard, SpecialPiece, MatchResult } from '@/lib/games/match-3/types'
+import { BOARD_SIZE, INITIAL_STEPS, createEmptySpecials, getFruitFromValue, getSpecialFromValue } from '@/lib/games/match-3/types'
 import {
   isAdjacent, swap, hasMatches, findMatches, removeMatches, applyGravity, fillEmpty,
   generateBoard, detectLTShape, getSpecialFromMatch, createSpecialAt, collectSpecialActivations,
+  getCombinedSpecialEffect, getCellsAffectedBySpecial,
 } from '@/lib/games/match-3/board'
 import { calcMatchScore, getHighScore, saveHighScore } from '@/lib/games/match-3/scoring'
 import { GameSound } from '@/lib/games/sound'
@@ -149,19 +150,33 @@ export function useMatch3() {
     const newSteps = clickSteps - 1
     setSteps(newSteps)
 
-    let matches = findMatches(testBoard, currentSpecials)
-    const ltMatches = detectLTShape(testBoard, matches, currentSpecials)
-    matches = [...matches, ...ltMatches]
+    // Check if both swapped pieces are special (combined effect)
+    const specA = currentSpecials[a.row]?.[a.col] ?? getSpecialFromValue(testBoard[a.row]?.[a.col] ?? -1)
+    const specB = currentSpecials[b.row]?.[b.col] ?? getSpecialFromValue(testBoard[b.row]?.[b.col] ?? -1)
+    const isComboSwap = specA && specB
 
-    const allPositions: Position[] = []
-    for (const m of matches) {
-      for (const p of m.positions) allPositions.push(p)
+    let allAffected: Position[]
+    let matches: MatchResult[]
+
+    if (isComboSwap) {
+      const comboAffected = getCombinedSpecialEffect(testBoard, currentSpecials, a, b, specA!, specB!)
+      allAffected = comboAffected
+      matches = []
+    } else {
+      matches = findMatches(testBoard, currentSpecials)
+      const ltMatches = detectLTShape(testBoard, matches, currentSpecials)
+      matches = [...matches, ...ltMatches]
+
+      const allPositions: Position[] = []
+      for (const m of matches) {
+        for (const p of m.positions) allPositions.push(p)
+      }
+
+      const specialAffected = collectSpecialActivations(testBoard, currentSpecials, allPositions)
+      allAffected = [...allPositions, ...specialAffected]
     }
 
-    // Check for special piece activations
-    const specialAffected = collectSpecialActivations(testBoard, currentSpecials, allPositions)
-    const allAffected = [...allPositions, ...specialAffected]
-    setAnimState(prev => ({ ...prev, removing: allAffected, specialActivating: specialAffected }))
+    setAnimState(prev => ({ ...prev, removing: allAffected, specialActivating: allAffected }))
 
     soundRef.current.match3swap()
 
@@ -169,13 +184,24 @@ export function useMatch3() {
       let cleared = removeMatches(testBoard, matches)
       let newSpecials = currentSpecials.map(row => [...row])
 
-      for (const m of matches) {
-        const specialType = getSpecialFromMatch(m)
-        if (specialType && m.center) {
-          const fruit = getFruitFromValue(testBoard[m.center.row][m.center.col])
-          const result = createSpecialAt(cleared, newSpecials, m.center, specialType, fruit)
-          cleared = result.board
-          newSpecials = result.specials
+      if (isComboSwap) {
+        // Combined swap: clear all affected positions directly
+        for (const p of allAffected) {
+          if (getFruitFromValue(cleared[p.row][p.col]) > 0) {
+            cleared[p.row][p.col] = -1
+          }
+        }
+        newSpecials[a.row][a.col] = null
+        newSpecials[b.row][b.col] = null
+      } else {
+        for (const m of matches) {
+          const specialType = getSpecialFromMatch(m)
+          if (specialType && m.center) {
+            const fruit = getFruitFromValue(testBoard[m.center.row][m.center.col])
+            const result = createSpecialAt(cleared, newSpecials, m.center, specialType, fruit)
+            cleared = result.board
+            newSpecials = result.specials
+          }
         }
       }
 
@@ -184,7 +210,7 @@ export function useMatch3() {
       const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
       const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
 
-      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || specialAffected.length > 0
+      const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || !!(specA && specB)
       const matchScore = calcMatchScore(allAffected.length, 0, hasSpec)
       const newScore = clickScore + matchScore
       setScore(newScore)
@@ -198,9 +224,49 @@ export function useMatch3() {
     return true
   }, [score, steps])
 
+  const activateSpecialPiece = useCallback((pos: Position, sp: SpecialPiece) => {
+    const currentBoard = boardRef.current
+    const currentSpecials = specialsRef.current
+    setSelected(null)
+
+    const affected = [...getCellsAffectedBySpecial(currentBoard, pos, sp), pos]
+    const clickScore = score
+    const clickSteps = steps
+    const newSteps = clickSteps - 1
+    setSteps(newSteps)
+
+    setAnimState(prev => ({ ...prev, removing: affected, specialActivating: affected }))
+    soundRef.current.match3clear()
+
+    setTimeout(() => {
+      const cleared = removeMatches(currentBoard, [{ positions: affected, count: affected.length, shape: 'row' }])
+      let newSpecials = currentSpecials.map(row => [...row])
+      newSpecials[pos.row][pos.col] = null
+
+      setAnimState({ removing: [], falling: [], filling: [], specialActivating: [] })
+      const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
+      const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
+
+      const newScore = clickScore + calcMatchScore(affected.length, 0, true)
+      setScore(newScore)
+      setCombo(1)
+
+      setTimeout(() => {
+        processChainRef.current?.(filledBoard, filledSpecials, 1, newScore, newSteps)
+      }, 200)
+    }, 250)
+  }, [score, steps])
+
   const handleCellClick = useCallback((pos: Position) => {
     if (status !== 'playing') return
+    const sp = specialsRef.current[pos.row]?.[pos.col] ?? getSpecialFromValue(boardRef.current[pos.row]?.[pos.col] ?? -1)
+
     if (!selected) {
+      // Clicking a special piece activates it directly
+      if (sp) {
+        activateSpecialPiece(pos, sp)
+        return
+      }
       setSelected(pos)
       soundRef.current.place()
       return
@@ -210,6 +276,11 @@ export function useMatch3() {
       return
     }
     if (!isAdjacent(selected, pos)) {
+      // If target is special, activate it
+      if (sp) {
+        activateSpecialPiece(pos, sp)
+        return
+      }
       setSelected(pos)
       soundRef.current.place()
       return
@@ -219,7 +290,7 @@ export function useMatch3() {
     if (!swapped) {
       setSelected(pos)
     }
-  }, [status, selected, doSwap])
+  }, [status, selected, doSwap, activateSpecialPiece])
 
   const handleSwipe = useCallback((from: Position, direction: 'up' | 'down' | 'left' | 'right') => {
     if (status !== 'playing') return

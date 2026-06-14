@@ -342,7 +342,6 @@ export function collectSpecialActivations(
         if (!visited.has(key)) {
           visited.add(key)
           allAffected.push(a)
-          // If the affected cell also has a special, queue it
           const aSp = specials[a.row]?.[a.col] ?? getSpecialFromValue(board[a.row]?.[a.col] ?? -1)
           if (aSp) queue.push(a)
         }
@@ -351,4 +350,126 @@ export function collectSpecialActivations(
   }
 
   return allAffected
+}
+
+export function getCombinedSpecialEffect(
+  board: Board,
+  specials: SpecialsBoard,
+  a: Position,
+  b: Position,
+  specA: SpecialPiece,
+  specB: SpecialPiece,
+): Position[] {
+  const affected: Position[] = []
+  const addPos = (r: number, c: number) => { if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) affected.push({ row: r, col: c }) }
+
+  if (specA === 'colorBomb' && specB === 'colorBomb') {
+    for (let r = 0; r < BOARD_SIZE; r++)
+      for (let c = 0; c < BOARD_SIZE; c++)
+        addPos(r, c)
+    return affected
+  }
+
+  if (specA === 'colorBomb' || specB === 'colorBomb') {
+    const colorPiece = specA === 'colorBomb' ? b : a
+    const color = getFruitFromValue(board[colorPiece.row][colorPiece.col])
+    const otherSpecial = specA === 'colorBomb' ? specB : specA
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        if (getFruitFromValue(board[r][c]) === color) {
+          addPos(r, c)
+          if (otherSpecial === 'bomb') {
+            for (let dr = -1; dr <= 1; dr++)
+              for (let dc = -1; dc <= 1; dc++)
+                addPos(r + dr, c + dc)
+          } else if (otherSpecial === 'lineH') {
+            for (let cc = 0; cc < BOARD_SIZE; cc++) addPos(r, cc)
+          } else if (otherSpecial === 'lineV') {
+            for (let rr = 0; rr < BOARD_SIZE; rr++) addPos(rr, c)
+          } else if (otherSpecial === 'wrapped') {
+            for (let dr = -2; dr <= 2; dr++)
+              for (let dc = -2; dc <= 2; dc++)
+                addPos(r + dr, c + dc)
+          }
+        }
+      }
+    }
+    return affected
+  }
+
+  if ((specA === 'bomb' && specB === 'bomb')) {
+    const centers = [a, b]
+    for (const c of centers) {
+      for (let dr = -2; dr <= 2; dr++)
+        for (let dc = -2; dc <= 2; dc++)
+          addPos(c.row + dr, c.col + dc)
+    }
+    return affected
+  }
+
+  if ((specA === 'bomb' && (specB === 'lineH' || specB === 'lineV')) ||
+      (specB === 'bomb' && (specA === 'lineH' || specA === 'lineV'))) {
+    const bombPos = specA === 'bomb' ? a : b
+    const linePos = specA === 'bomb' ? b : a
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++)
+        addPos(bombPos.row + dr, bombPos.col + dc)
+    for (let c = 0; c < BOARD_SIZE; c++) addPos(linePos.row, c)
+    for (let r = 0; r < BOARD_SIZE; r++) addPos(r, linePos.col)
+    return affected
+  }
+
+  if ((specA === 'bomb' && specB === 'wrapped') || (specA === 'wrapped' && specB === 'bomb')) {
+    const centers = [a, b]
+    for (const c of centers) {
+      for (let dr = -2; dr <= 2; dr++)
+        for (let dc = -2; dc <= 2; dc++)
+          addPos(c.row + dr, c.col + dc)
+    }
+    return affected
+  }
+
+  if (specA === 'wrapped' && specB === 'wrapped') {
+    const centers = [a, b]
+    for (const c of centers) {
+      for (let dr = -3; dr <= 3; dr++)
+        for (let dc = -3; dc <= 3; dc++)
+          addPos(c.row + dr, c.col + dc)
+    }
+    return affected
+  }
+
+  if ((specA === 'wrapped' && (specB === 'lineH' || specB === 'lineV')) ||
+      (specB === 'wrapped' && (specA === 'lineH' || specA === 'lineV'))) {
+    const wrapPos = specA === 'wrapped' ? a : b
+    const linePos = specA === 'wrapped' ? b : a
+    for (let dr = -2; dr <= 2; dr++)
+      for (let dc = -2; dc <= 2; dc++)
+        addPos(wrapPos.row + dr, wrapPos.col + dc)
+    for (let c = 0; c < BOARD_SIZE; c++) addPos(linePos.row, c)
+    for (let r = 0; r < BOARD_SIZE; r++) addPos(r, linePos.col)
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++)
+        addPos(linePos.row + dr, linePos.col + dc)
+    return affected
+  }
+
+  if ((specA === 'lineH' && specB === 'lineV') || (specA === 'lineV' && specB === 'lineH')) {
+    for (let c = 0; c < BOARD_SIZE; c++) addPos(a.row, c)
+    for (let r = 0; r < BOARD_SIZE; r++) addPos(r, a.col)
+    for (let c = 0; c < BOARD_SIZE; c++) addPos(b.row, c)
+    for (let r = 0; r < BOARD_SIZE; r++) addPos(r, b.col)
+    return affected
+  }
+
+  if (specA === 'lineH' && specB === 'lineH') {
+    for (let c = 0; c < BOARD_SIZE; c++) { addPos(a.row, c); addPos(b.row, c) }
+    return affected
+  }
+  if (specA === 'lineV' && specB === 'lineV') {
+    for (let r = 0; r < BOARD_SIZE; r++) { addPos(r, a.col); addPos(r, b.col) }
+    return affected
+  }
+
+  return affected
 }
