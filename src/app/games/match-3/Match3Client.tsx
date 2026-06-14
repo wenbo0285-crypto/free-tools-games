@@ -1,25 +1,157 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 import { useMatch3 } from '@/hooks/useMatch3'
 import { BOARD_SIZE, CAT_NAMES, CAT_IMAGES, SPECIAL_IMAGES, getSpecialFromValue, getFruitFromValue } from '@/lib/games/match-3/types'
 import type { Position, SpecialPiece } from '@/lib/games/match-3/types'
 
 const SWIPE_THRESHOLD = 20
 
-function CatImage({ fruit, special, className }: { fruit: number; special: SpecialPiece | null; className?: string }) {
+interface Particle {
+  id: number
+  x: number
+  y: number
+  dx: number
+  dy: number
+  color: string
+}
+
+interface ComboPopup {
+  combo: number
+  score: number
+}
+
+function CatImage({ fruit, special, removing, falling, activating, spType }: {
+  fruit: number
+  special: SpecialPiece | null
+  removing: boolean
+  falling: boolean
+  activating: boolean
+  spType: SpecialPiece | null
+}) {
   const src = special ? SPECIAL_IMAGES[special] ?? CAT_IMAGES[fruit] : CAT_IMAGES[fruit]
   const [loaded, setLoaded] = useState(false)
+  const [showParticles, setShowParticles] = useState(false)
+
+  useEffect(() => {
+    if (removing) {
+      const t = setTimeout(() => setShowParticles(true), 150)
+      return () => clearTimeout(t)
+    }
+    setShowParticles(false)
+  }, [removing])
+
+  let animClass = ''
+  if (removing) animClass = 'anim-pop-out'
+  else if (falling) animClass = 'anim-bounce-drop'
+  else if (activating && spType === 'lineH') animClass = 'anim-beam-h'
+  else if (activating && spType === 'lineV') animClass = 'anim-beam-v'
+  else if (activating && spType === 'bomb') animClass = 'anim-explode'
+  else if (activating && spType === 'colorBomb') animClass = 'anim-rainbow'
+  else if (activating && spType === 'wrapped') animClass = 'anim-explode'
+
   return (
-    <div className={`relative flex items-center justify-center w-full h-full ${className ?? ''}`}>
-      {!loaded && <div className="absolute inset-0 bg-gray-100 rounded-lg animate-pulse" />}
+    <div className={`relative flex items-center justify-center w-full h-full ${animClass} ${activating ? 'z-10' : ''}`}>
+      {!loaded && !removing && <div className="absolute inset-0 bg-gray-100 rounded-lg animate-pulse" />}
       <img
         src={src}
         alt={CAT_NAMES[fruit] ?? ''}
-        className={`w-[80%] h-[80%] object-contain transition-opacity duration-100 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        className={`w-[80%] h-[80%] object-contain transition-opacity duration-100 ${loaded || removing ? 'opacity-100' : 'opacity-0'}`}
         onLoad={() => setLoaded(true)}
         draggable={false}
       />
+      {showParticles && <ParticleBurst />}
+    </div>
+  )
+}
+
+function ParticleBurst() {
+  const colors = ['#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f97316']
+  const particles = useMemo(() => {
+    const arr: Particle[] = []
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI * 2 * i) / 6 + (Math.random() - 0.5) * 0.5
+      const dist = 20 + Math.random() * 20
+      arr.push({
+        id: i,
+        x: 50,
+        y: 50,
+        dx: Math.cos(angle) * dist,
+        dy: Math.sin(angle) * dist,
+        color: colors[i % colors.length],
+      })
+    }
+    return arr
+  }, [])
+
+  return (
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 20 }}>
+      {particles.map(p => (
+        <div
+          key={p.id}
+          className="absolute rounded-full anim-particle"
+          style={{
+            left: `${p.x}%`,
+            top: `${p.y}%`,
+            width: 6,
+            height: 6,
+            backgroundColor: p.color,
+            '--dx': `${p.dx}px`,
+            '--dy': `${p.dy}px`,
+          } as React.CSSProperties}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SpecialEffectOverlay({ spType, pos }: { spType: SpecialPiece; pos: { row: number; col: number } }) {
+  let className = 'absolute inset-0 pointer-events-none rounded-xl z-15'
+  let style: React.CSSProperties = {}
+
+  if (spType === 'lineH') {
+    className += ' bg-gradient-to-r from-yellow-300/60 via-yellow-200/40 to-yellow-300/60'
+    style = { animation: 'beam-h 0.4s ease-out forwards' }
+  } else if (spType === 'lineV') {
+    className += ' bg-gradient-to-b from-blue-300/60 via-blue-200/40 to-blue-300/60'
+    style = { animation: 'beam-v 0.4s ease-out forwards' }
+  } else if (spType === 'bomb') {
+    className += ' bg-gradient-to-br from-orange-400/60 via-red-400/40 to-orange-400/60'
+    style = { animation: 'explode 0.4s ease-out forwards' }
+  } else if (spType === 'colorBomb') {
+    className += ' bg-gradient-to-br from-purple-400/60 via-pink-400/40 via-yellow-300/40 to-purple-400/60'
+    style = { animation: 'rainbow-flash 0.6s ease-out forwards' }
+  } else if (spType === 'wrapped') {
+    className += ' bg-gradient-to-br from-green-400/60 via-teal-300/40 to-green-400/60'
+    style = { animation: 'explode 0.5s ease-out forwards' }
+  }
+
+  return <div className={className} style={style} />
+}
+
+function ComboDisplay({ combo, score }: { combo: number; score: number }) {
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    setVisible(true)
+    const t = setTimeout(() => setVisible(false), 1200)
+    return () => clearTimeout(t)
+  }, [combo, score])
+
+  if (!visible) return null
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-30 flex items-center justify-center">
+      <div className="anim-combo text-center">
+        <div className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 drop-shadow-lg">
+          {combo >= 4 ? '🔥 Combo x' + combo : combo >= 3 ? '⚡ Combo x' + combo : combo >= 2 ? 'Combo x' + combo : ''}
+        </div>
+        {score > 0 && (
+          <div className="text-2xl font-bold text-yellow-500 drop-shadow mt-1">
+            +{score}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -34,9 +166,28 @@ export default function Match3Client() {
   const gridRef = useRef<HTMLDivElement>(null)
   const swipeStart = useRef<{ row: number; col: number; x: number; y: number } | null>(null)
   const didSwipe = useRef(false)
+  const [comboPopup, setComboPopup] = useState<ComboPopup | null>(null)
+  const prevComboRef = useRef(0)
+
+  useEffect(() => {
+    if (combo >= 2 && combo !== prevComboRef.current) {
+      const bonus = Math.min(combo, 6) * 100
+      setComboPopup({ combo, score: bonus })
+      const t = setTimeout(() => setComboPopup(null), 1300)
+      prevComboRef.current = combo
+      return () => clearTimeout(t)
+    }
+    if (combo === 0) prevComboRef.current = 0
+  }, [combo])
 
   const isRemoving = (r: number, c: number) =>
     animState.removing.some(p => p.row === r && p.col === c)
+
+  const isFalling = (r: number, c: number) =>
+    animState.falling.some(p => p.row === r && p.col === c)
+
+  const isActivating = (r: number, c: number) =>
+    animState.specialActivating.some(p => p.row === r && p.col === c)
 
   const getBoardPos = useCallback((clientX: number, clientY: number): Position | null => {
     const el = gridRef.current
@@ -103,13 +254,17 @@ export default function Match3Client() {
         </div>
         <div className="text-center flex-1 min-w-0 px-1">
           <div className="text-xs text-gray-500">Combo</div>
-          <div className="text-xl font-bold text-orange-500">{combo > 0 ? `x${combo}` : '-'}</div>
+          <div className={`text-xl font-bold ${combo >= 3 ? 'text-purple-500' : combo >= 2 ? 'text-orange-500' : 'text-gray-500'}`}>
+            {combo > 0 ? `x${combo}` : '-'}
+          </div>
         </div>
         <div className="text-center flex-1 min-w-0 px-1">
           <div className="text-xs text-gray-500">最高分</div>
           <div className="text-lg font-bold text-purple-600" style={{ overflowWrap: 'anywhere' }}>{highScore}</div>
         </div>
       </div>
+
+      {comboPopup && <ComboDisplay combo={comboPopup.combo} score={comboPopup.score} />}
 
       <div className="flex gap-3 flex-wrap justify-center w-full" style={{ maxWidth: 420, boxSizing: 'border-box' }}>
         <button
@@ -182,6 +337,8 @@ export default function Match3Client() {
               row.map((value, c) => {
                 const isSelected = selected?.row === r && selected?.col === c
                 const removing = isRemoving(r, c)
+                const falling = isFalling(r, c)
+                const activating = isActivating(r, c)
                 const fruit = getFruitFromValue(value)
                 const special = getSpecialFromValue(value) ?? specials[r]?.[c] ?? null
                 const isEmpty = value < 0
@@ -192,7 +349,6 @@ export default function Match3Client() {
                       flex items-center justify-center rounded-xl cursor-pointer
                       transition-all duration-150
                       ${isSelected ? 'ring-3 ring-indigo-400 scale-105 shadow-md' : 'hover:ring-2 hover:ring-indigo-300'}
-                      ${removing ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}
                       ${status === 'playing' && !isEmpty ? 'hover:bg-indigo-50' : ''}
                     `}
                     style={{
@@ -200,15 +356,20 @@ export default function Match3Client() {
                       minWidth: 0,
                       minHeight: 0,
                       backgroundColor: !isEmpty ? 'white' : 'transparent',
-                      transition: removing ? 'all 0.2s ease-out' : 'all 0.15s ease',
                       boxSizing: 'border-box',
                     }}
                   >
+                    {activating && special && (
+                      <SpecialEffectOverlay spType={special} pos={{ row: r, col: c }} />
+                    )}
                     {!isEmpty && (
                       <CatImage
                         fruit={fruit}
                         special={special}
-                        className={removing ? 'animate-ping' : ''}
+                        removing={removing}
+                        falling={falling}
+                        activating={activating}
+                        spType={activating ? special : null}
                       />
                     )}
                   </div>

@@ -99,8 +99,17 @@ export function useMatch3() {
     setCombo(newCombo)
     setAnimState(prev => ({ ...prev, removing: allAffected, specialActivating: specialAffected }))
 
-    if (newCombo >= 2) soundRef.current.combo()
-    else soundRef.current.match3clear()
+    const playSpecialSound = (p: Position) => {
+      const sp = currentSpecials[p.row]?.[p.col] ?? getSpecialFromValue(currentBoard[p.row]?.[p.col] ?? -1)
+      if (sp === 'lineH') soundRef.current.specialLineH()
+      else if (sp === 'lineV') soundRef.current.specialLineV()
+      else if (sp === 'bomb') soundRef.current.specialBomb()
+      else if (sp === 'colorBomb') soundRef.current.specialColorBomb()
+      else if (sp === 'wrapped') soundRef.current.specialWrapped()
+    }
+    if (newCombo === 1) soundRef.current.match3clear()
+    else if (newCombo >= 2) soundRef.current.combo()
+    if (specialAffected.length > 0) playSpecialSound(specialAffected[0])
 
     setTimeout(() => {
       let cleared = removeMatches(currentBoard, matches)
@@ -121,8 +130,24 @@ export function useMatch3() {
       const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
       const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
 
+      // Track falling cells for bounce animation
+      const fallingCells: Position[] = []
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        let emptyCount = 0
+        for (let r = BOARD_SIZE - 1; r >= 0; r--) {
+          if (cleared[r][c] < 0) emptyCount++
+          else if (emptyCount > 0) fallingCells.push({ row: r, col: c })
+        }
+      }
+      setAnimState({ removing: [], falling: fallingCells, filling: [], specialActivating: [] })
+      setTimeout(() => setAnimState(prev => ({ ...prev, falling: [] })), 350)
+
       const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || specialAffected.length > 0
       const chainScore = calcMatchScore(allAffected.length, currentCombo, hasSpec)
+
+      if (newCombo >= 3) soundRef.current.chainBonus(newCombo)
+      if (totalScore + chainScore >= 5000 && totalScore < 5000) soundRef.current.highScore()
+
       const newTotal = totalScore + chainScore
       setScore(newTotal)
 
@@ -140,7 +165,10 @@ export function useMatch3() {
     const currentBoard = boardRef.current
     const currentSpecials = specialsRef.current
     const testBoard = swap(currentBoard, a, b)
-    if (!hasMatches(testBoard, currentSpecials)) return false
+    if (!hasMatches(testBoard, currentSpecials)) {
+      soundRef.current.failSwap()
+      return false
+    }
 
     const clickScore = score
     const clickSteps = steps
@@ -178,14 +206,21 @@ export function useMatch3() {
 
     setAnimState(prev => ({ ...prev, removing: allAffected, specialActivating: allAffected }))
 
-    soundRef.current.match3swap()
+    // Play special sounds based on what's being activated
+    if (isComboSwap) {
+      if (specA === 'colorBomb' || specB === 'colorBomb') soundRef.current.specialColorBomb()
+      else if (specA === 'bomb' || specB === 'bomb') soundRef.current.specialBomb()
+      else if (specA === 'wrapped' || specB === 'wrapped') soundRef.current.specialWrapped()
+      else soundRef.current.specialLineH()
+    } else {
+      soundRef.current.match3swap()
+    }
 
     setTimeout(() => {
       let cleared = removeMatches(testBoard, matches)
       let newSpecials = currentSpecials.map(row => [...row])
 
       if (isComboSwap) {
-        // Combined swap: clear all affected positions directly
         for (const p of allAffected) {
           if (getFruitFromValue(cleared[p.row][p.col]) > 0) {
             cleared[p.row][p.col] = -1
@@ -201,6 +236,7 @@ export function useMatch3() {
             const result = createSpecialAt(cleared, newSpecials, m.center, specialType, fruit)
             cleared = result.board
             newSpecials = result.specials
+            soundRef.current.specialCreate()
           }
         }
       }
@@ -210,9 +246,22 @@ export function useMatch3() {
       const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
       const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
 
+      // Track falling cells for bounce animation
+      const fallingCells: Position[] = []
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        let emptyCount = 0
+        for (let r = BOARD_SIZE - 1; r >= 0; r--) {
+          if (cleared[r][c] < 0) emptyCount++
+          else if (emptyCount > 0) fallingCells.push({ row: r, col: c })
+        }
+      }
+      setAnimState({ removing: [], falling: fallingCells, filling: [], specialActivating: [] })
+      setTimeout(() => setAnimState(prev => ({ ...prev, falling: [] })), 350)
+
       const hasSpec = matches.some(m => getSpecialFromMatch(m) !== null) || !!(specA && specB)
       const matchScore = calcMatchScore(allAffected.length, 0, hasSpec)
       const newScore = clickScore + matchScore
+      if (newScore >= 5000 && clickScore < 5000) soundRef.current.highScore()
       setScore(newScore)
       setCombo(1)
 
@@ -236,7 +285,14 @@ export function useMatch3() {
     setSteps(newSteps)
 
     setAnimState(prev => ({ ...prev, removing: affected, specialActivating: affected }))
-    soundRef.current.match3clear()
+
+    // Play appropriate special sound
+    if (sp === 'lineH') soundRef.current.specialLineH()
+    else if (sp === 'lineV') soundRef.current.specialLineV()
+    else if (sp === 'bomb') soundRef.current.specialBomb()
+    else if (sp === 'colorBomb') soundRef.current.specialColorBomb()
+    else if (sp === 'wrapped') soundRef.current.specialWrapped()
+    else soundRef.current.match3clear()
 
     setTimeout(() => {
       const cleared = removeMatches(currentBoard, [{ positions: affected, count: affected.length, shape: 'row' }])
@@ -246,6 +302,18 @@ export function useMatch3() {
       setAnimState({ removing: [], falling: [], filling: [], specialActivating: [] })
       const { board: gravBoard, specials: gravSpecials } = applyGravity(cleared, newSpecials)
       const { board: filledBoard, specials: filledSpecials } = fillEmpty(gravBoard, gravSpecials)
+
+      // Track falling cells for bounce animation
+      const fallingCells: Position[] = []
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        let emptyCount = 0
+        for (let r = BOARD_SIZE - 1; r >= 0; r--) {
+          if (cleared[r][c] < 0) emptyCount++
+          else if (emptyCount > 0) fallingCells.push({ row: r, col: c })
+        }
+      }
+      setAnimState({ removing: [], falling: fallingCells, filling: [], specialActivating: [] })
+      setTimeout(() => setAnimState(prev => ({ ...prev, falling: [] })), 350)
 
       const newScore = clickScore + calcMatchScore(affected.length, 0, true)
       setScore(newScore)
