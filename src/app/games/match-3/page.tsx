@@ -38,7 +38,7 @@ export default function Match3Page() {
   ]
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10">
+    <div className="mx-auto max-w-4xl px-4 py-10" style={{ overflowX: 'hidden', maxWidth: '100vw' }}>
       <Breadcrumb items={[
         { label: '首頁', href: '/' },
         { label: '免費小遊戲', href: '/games' },

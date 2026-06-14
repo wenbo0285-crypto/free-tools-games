@@ -30,6 +30,20 @@ const SHAPE_DEFS: number[][][] = [
   [[1, 1], [1, 1], [1, 1]],
 ]
 
+const LARGE_INDICES = new Set([4, 6, 14])
+
+const WEIGHTS = [8, 6, 5, 3, 1, 4, 1, 4, 4, 3, 3, 3, 2, 5, 1]
+
+function weightedIndex(): number {
+  const total = WEIGHTS.reduce((a, b) => a + b, 0)
+  let r = Math.random() * total
+  for (let i = 0; i < WEIGHTS.length; i++) {
+    r -= WEIGHTS[i]
+    if (r <= 0) return i
+  }
+  return WEIGHTS.length - 1
+}
+
 export function getAllShapes(): Shape[] {
   return SHAPE_DEFS.map((cells, i) => ({
     id: i,
@@ -43,18 +57,21 @@ export function getRandomShape(): Shape {
   return { ...all[Math.floor(Math.random() * all.length)] }
 }
 
-export function getRandomPieces(count: number): Shape[] {
-  return Array.from({ length: count }, () => getRandomShape())
-}
-
-export function rotateShape(shape: Shape): Shape {
-  const n = shape.cells.length
-  const m = shape.cells[0].length
-  const rotated: number[][] = Array.from({ length: m }, () => Array(n).fill(0))
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < m; c++) {
-      rotated[c][n - 1 - r] = shape.cells[r][c]
-    }
+export function getWeightedRandomPieces(count: number): Shape[] {
+  const all = getAllShapes()
+  const pieces: Shape[] = []
+  const usedLarge = new Set<number>()
+  for (let i = 0; i < count; i++) {
+    let idx: number
+    let attempts = 0
+    do {
+      idx = weightedIndex()
+      attempts++
+    } while (
+      LARGE_INDICES.has(idx) && usedLarge.size >= 1 && attempts < 20
+    )
+    if (LARGE_INDICES.has(idx)) usedLarge.add(idx)
+    pieces.push({ ...all[idx] })
   }
-  return { ...shape, cells: rotated }
+  return pieces
 }

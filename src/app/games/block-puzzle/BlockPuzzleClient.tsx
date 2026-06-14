@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState, useEffect } from 'react'
 import { useBlockPuzzle } from '@/hooks/useBlockPuzzle'
 import { BOARD_SIZE } from '@/lib/games/block-puzzle/types'
 import type { Shape } from '@/lib/games/block-puzzle/types'
@@ -15,22 +15,32 @@ export default function BlockPuzzleClient() {
   } = useBlockPuzzle()
 
   const boardRef = useRef<HTMLDivElement>(null)
+  const [pointerPos, setPointerPos] = useState({ x: 0, y: 0 })
 
-  const cellSize = Math.min(44, Math.floor((typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 600) : 600) / BOARD_SIZE))
+  const [boardPx, setBoardPx] = useState(400)
+  useEffect(() => {
+    const calc = () => setBoardPx(Math.min(window.innerWidth * 0.92, 420))
+    calc()
+    window.addEventListener('resize', calc)
+    return () => window.removeEventListener('resize', calc)
+  }, [])
+
+  const cellSize = Math.floor(boardPx / BOARD_SIZE)
 
   const getBoardPos = useCallback((clientX: number, clientY: number): { row: number; col: number } | null => {
     if (!boardRef.current) return null
     const rect = boardRef.current.getBoundingClientRect()
-    const col = Math.floor((clientX - rect.left) / cellSize)
-    const row = Math.floor((clientY - rect.top) / cellSize)
+    const col = Math.floor((clientX - rect.left) / (rect.width / BOARD_SIZE))
+    const row = Math.floor((clientY - rect.top) / (rect.height / BOARD_SIZE))
     if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return null
     return { row, col }
-  }, [cellSize])
+  }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent, pieceIndex: number) => {
     e.preventDefault()
     boardRef.current?.setPointerCapture(e.pointerId)
     startDrag(pieceIndex)
+    setPointerPos({ x: e.clientX, y: e.clientY })
     const pos = getBoardPos(e.clientX, e.clientY)
     if (pos) setDragPos(pieceIndex, pos.row, pos.col)
   }, [startDrag, getBoardPos, setDragPos])
@@ -38,6 +48,7 @@ export default function BlockPuzzleClient() {
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragState.isDragging) return
     e.preventDefault()
+    setPointerPos({ x: e.clientX, y: e.clientY })
     const pos = getBoardPos(e.clientX, e.clientY)
     if (pos) setDragPos(dragState.pieceIndex, pos.row, pos.col)
   }, [dragState, getBoardPos, setDragPos])
@@ -47,50 +58,24 @@ export default function BlockPuzzleClient() {
     endDrag()
   }, [endDrag])
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, pieceIndex: number) => {
-    const touch = e.touches[0]
-    if (!touch) return
-    startDrag(pieceIndex)
-    const pos = getBoardPos(touch.clientX, touch.clientY)
-    if (pos) setDragPos(pieceIndex, pos.row, pos.col)
-  }, [startDrag, getBoardPos, setDragPos])
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!dragState.isDragging) return
-    e.preventDefault()
-    const touch = e.touches[0]
-    if (!touch) return
-    const pos = getBoardPos(touch.clientX, touch.clientY)
-    if (pos) setDragPos(dragState.pieceIndex, pos.row, pos.col)
-  }, [dragState, getBoardPos, setDragPos])
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    e.preventDefault()
-    endDrag()
-  }, [endDrag])
-
-  function renderBoard() {
+  const renderBoard = () => {
     const cells: React.ReactNode[] = []
-
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const isClearingRow = animState.clearingRows.includes(r)
         const isClearingCol = animState.clearingCols.includes(c)
+        const isPreview = dragState.previewPos && dragState.isValid &&
+          r >= dragState.previewPos.row && r < dragState.previewPos.row + (currentPieces[dragState.pieceIndex]?.cells.length || 1) &&
+          c >= dragState.previewPos.col && c < dragState.previewPos.col + (currentPieces[dragState.pieceIndex]?.cells[0]?.length || 1) &&
+          !!(currentPieces[dragState.pieceIndex]?.cells[r - dragState.previewPos.row]?.[c - dragState.previewPos.col])
 
         cells.push(
           <div
             key={`${r}-${c}`}
             className={`border-[0.5px] border-gray-200 transition-colors duration-150 ${isClearingRow || isClearingCol ? 'animate-pulse' : ''}`}
             style={{
-              width: cellSize,
-              height: cellSize,
-              backgroundColor: board[r][c] ? '#4F46E5' : isClearingRow || isClearingCol ? '#FCD34D' : dragState.previewPos && dragState.isValid &&
-                r >= dragState.previewPos.row && r < dragState.previewPos.row + (currentPieces[dragState.pieceIndex]?.cells.length || 1) &&
-                c >= dragState.previewPos.col && c < dragState.previewPos.col + (currentPieces[dragState.pieceIndex]?.cells[0]?.length || 1)
-                ? (currentPieces[dragState.pieceIndex]?.cells[r - dragState.previewPos.row]?.[c - dragState.previewPos.col]
-                  ? 'rgba(79, 70, 229, 0.25)' : '#f3f4f6')
-                : '#f3f4f6',
-              borderRadius: 2,
+              backgroundColor: board[r][c] ? '#4F46E5' : isClearingRow || isClearingCol ? '#FCD34D' : isPreview
+                ? 'rgba(79, 70, 229, 0.25)' : '#f3f4f6',
             }}
           />
         )
@@ -99,17 +84,14 @@ export default function BlockPuzzleClient() {
     return cells
   }
 
-  function renderPiece(shape: Shape, index: number) {
-    const isDraggingThis = dragState.isDragging && dragState.pieceIndex === index
-    if (isDraggingThis) return null
-
+  const renderPiece = (shape: Shape, index: number) => {
+    if (dragState.isDragging && dragState.pieceIndex === index) return null
     return (
       <div
         key={index}
-        className="inline-flex cursor-grab touch-none flex-col items-center rounded-lg border border-gray-200 bg-white p-2 shadow-sm active:cursor-grabbing"
+        className="inline-flex cursor-grab touch-none flex-col items-center rounded-lg border border-gray-200 bg-white p-1.5 shadow-sm active:cursor-grabbing"
         onPointerDown={e => handlePointerDown(e, index)}
-        onTouchStart={e => handleTouchStart(e, index)}
-        style={{ userSelect: 'none' }}
+        style={{ userSelect: 'none', touchAction: 'none' }}
       >
         {shape.cells.map((row, ri) => (
           <div key={ri} className="flex" style={{ gap: 1 }}>
@@ -131,17 +113,18 @@ export default function BlockPuzzleClient() {
     )
   }
 
-  function renderFloatingPiece() {
+  const renderFloatingPiece = () => {
     if (!dragState.isDragging || dragState.pieceIndex < 0) return null
     const shape = currentPieces[dragState.pieceIndex]
     if (!shape) return null
-
+    const floatW = shape.cells[0].length * cellSize
+    const floatH = shape.cells.length * cellSize
     return (
       <div
         className="pointer-events-none fixed z-50"
         style={{
-          transform: 'translate(-50%, -50%)',
-          opacity: dragState.isValid ? 0.8 : 0.4,
+          transform: `translate3d(${pointerPos.x - floatW / 2}px, ${pointerPos.y - floatH / 2}px, 0)`,
+          opacity: dragState.isValid ? 0.85 : 0.4,
         }}
       >
         {shape.cells.map((row, ri) => (
@@ -150,10 +133,10 @@ export default function BlockPuzzleClient() {
               <div
                 key={ci}
                 style={{
-                  width: cellSize * 0.7,
-                  height: cellSize * 0.7,
+                  width: cellSize,
+                  height: cellSize,
                   backgroundColor: cell ? shape.color : 'transparent',
-                  borderRadius: 3,
+                  borderRadius: 4,
                   visibility: cell ? 'visible' : 'hidden',
                 }}
               />
@@ -164,7 +147,7 @@ export default function BlockPuzzleClient() {
     )
   }
 
-  function renderGameOver() {
+  const renderGameOver = () => {
     if (status !== 'gameOver') return null
     return (
       <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
@@ -240,24 +223,26 @@ export default function BlockPuzzleClient() {
         <>
           <div className="flex flex-col items-center gap-4 p-4">
             <div
-              ref={boardRef}
-              className="grid touch-none select-none rounded-lg border-2 border-gray-300 bg-gray-50"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${BOARD_SIZE}, ${cellSize}px)`,
-                gridTemplateRows: `repeat(${BOARD_SIZE}, ${cellSize}px)`,
-                gap: 0,
-              }}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={clearDrag}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
+              style={{ width: boardPx }}
+              className="touch-none select-none"
             >
-              {renderBoard()}
+              <div
+                ref={boardRef}
+                className="grid rounded-lg border-2 border-gray-300 bg-gray-50 overflow-hidden"
+                style={{
+                  aspectRatio: '1 / 1',
+                  gridTemplateColumns: `repeat(${BOARD_SIZE}, 1fr)`,
+                  gridTemplateRows: `repeat(${BOARD_SIZE}, 1fr)`,
+                }}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={clearDrag}
+              >
+                {renderBoard()}
+              </div>
             </div>
 
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex items-center justify-center gap-4 min-h-[70px]">
               {currentPieces.map((shape, i) => renderPiece(shape, i))}
             </div>
 

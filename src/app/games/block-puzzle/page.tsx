@@ -38,7 +38,7 @@ const faqItems = [
 
 export default function BlockPuzzlePage() {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10">
+    <div className="mx-auto max-w-3xl px-4 py-10" style={{ overflowX: 'hidden', maxWidth: '100vw' }}>
       <Breadcrumb items={[
         { label: '首頁', href: '/' },
         { label: '免費遊戲', href: '/games' },
